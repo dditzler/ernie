@@ -79,8 +79,12 @@
     margin-bottom: 12px;
   }
 
-  .temp-col { flex: 1; padding: 0 16px; }
+  .temp-col { flex: 3; padding: 0 16px; }          /* inside = 60% */
+  .temp-col.outside { flex: 2; }                   /* outside = 40% */
   .temp-col + .temp-col { border-left: 1px solid #edf2f7; }
+
+  .temp-col.outside .temp-value { font-size: 48px; letter-spacing: -2px; }
+  .temp-col.outside .temp-unit  { font-size: 20px; }
 
   .temp-col-label {
     font-size: 11px;
@@ -172,7 +176,7 @@
         <span class="temp-value waiting" id="temp-inside">--</span><span class="temp-unit">°F</span>
       </div>
     </div>
-    <div class="temp-col">
+    <div class="temp-col outside">
       <div class="temp-col-label">Outside</div>
       <div>
         <span class="temp-value waiting" id="temp-outside">--</span><span class="temp-unit">°F</span>
