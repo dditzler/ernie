@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vacation Home — Temperature Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f0f4f8;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    color: #1a202c;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 24px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    padding: 40px 48px;
+    width: 100%;
+    max-width: 420px;
+    text-align: center;
+  }
+
+  .property-name {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #718096;
+    margin-bottom: 6px;
+  }
+
+  .location {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 32px;
+  }
+
+  /* ── Status pill ── */
+  .status-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-bottom: 36px;
+  }
+
+  .status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #cbd5e0;
+    flex-shrink: 0;
+    transition: background 0.4s;
+  }
+  .status-dot.online  { background: #48bb78; box-shadow: 0 0 0 3px rgba(72,187,120,0.2); }
+  .status-dot.offline { background: #f56565; }
+  .status-dot.waiting { background: #ed8936; animation: pulse 1.4s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+
+  .status-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #718096;
+  }
+
+  /* ── Temperature ── */
+  .temp-wrap {
+    margin-bottom: 12px;
+  }
+
+  .temp-value {
+    font-size: 96px;
+    font-weight: 200;
+    letter-spacing: -4px;
+    color: #1a202c;
+    line-height: 1;
+    transition: color 0.4s;
+  }
+  .temp-value.cold { color: #4299e1; }
+  .temp-value.warm { color: #ed8936; }
+  .temp-value.hot  { color: #f56565; }
+  .temp-value.waiting { color: #cbd5e0; }
+
+  .temp-unit {
+    font-size: 36px;
+    font-weight: 300;
+    color: #a0aec0;
+    vertical-align: super;
+    line-height: 0;
+    margin-left: 4px;
+  }
+
+  .last-updated {
+    font-size: 12px;
+    color: #a0aec0;
+    margin-bottom: 36px;
+    min-height: 18px;
+  }
+
+  /* ── Divider ── */
+  .divider {
+    height: 1px;
+    background: #edf2f7;
+    margin: 0 -48px 32px;
+  }
+
+  /* ── Daily hi/lo ── */
+  .daily-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #a0aec0;
+    margin-bottom: 16px;
+  }
+
+  .hilo-row {
+    display: flex;
+    justify-content: center;
+    gap: 48px;
+  }
+
+  .hilo-item { text-align: center; }
+
+  .hilo-temp {
+    font-size: 32px;
+    font-weight: 300;
+    color: #2d3748;
+  }
+  .hilo-temp.hi { color: #e53e3e; }
+  .hilo-temp.lo { color: #3182ce; }
+  .hilo-temp.empty { color: #cbd5e0; }
+
+  .hilo-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #a0aec0;
+    margin-top: 4px;
+  }
+
+  .daily-date {
+    font-size: 11px;
+    color: #a0aec0;
+    margin-top: 12px;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 32px;
+    font-size: 11px;
+    color: #a0aec0;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="property-name">Vacation Home</div>
+  <div class="location">Illinois — Indoor</div>
+
+  <div class="status-row">
+    <div class="status-dot waiting" id="dot"></div>
+    <span class="status-label" id="status-label">Connecting…</span>
+  </div>
+
+  <div class="temp-wrap">
+    <span class="temp-value waiting" id="temp">--</span><span class="temp-unit">°F</span>
+  </div>
+  <div class="last-updated" id="last-updated"></div>
+
+  <div class="divider"></div>
+
+  <div class="daily-label">Today's Range</div>
+  <div class="hilo-row">
+    <div class="hilo-item">
+      <div class="hilo-temp hi empty" id="hi-temp">--</div>
+      <div class="hilo-label">High</div>
+    </div>
+    <div class="hilo-item">
+      <div class="hilo-temp lo empty" id="lo-temp">--</div>
+      <div class="hilo-label">Low</div>
+    </div>
+  </div>
+  <div class="daily-date" id="daily-date"></div>
+</div>
+
+<div class="footer">Sensor updates every 10 seconds</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const BROKER   = 'broker.hivemq.com';   // cellular path (neighbor's house)
+const PORT     = 8884;
+const PROTOCOL = 'wss';
+const TOPIC_STATUS = 'vacation/cust1/il/temp/status';
+const TOPIC_DAILY  = 'vacation/cust1/il/temp/daily';
+const OFFLINE_MS   = 5 * 60 * 1000;    // 5 min without data → show offline
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let lastMsgTime = null;
+let offlineTimer = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function setStatus(state, text) {
+  const dot = document.getElementById('dot');
+  const lbl = document.getElementById('status-label');
+  dot.className = 'status-dot ' + state;
+  lbl.textContent = text;
+}
+
+function tempColor(f) {
+  if (f < 50) return 'cold';
+  if (f < 75) return '';
+  if (f < 85) return 'warm';
+  return 'hot';
+}
+
+function timeAgo(ms) {
+  const s = Math.round((Date.now() - ms) / 1000);
+  if (s < 5)  return 'just now';
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  return `${m}m ago`;
+}
+
+function updateLastSeen() {
+  if (!lastMsgTime) return;
+  document.getElementById('last-updated').textContent = 'Updated ' + timeAgo(lastMsgTime);
+}
+
+setInterval(updateLastSeen, 10000);
+
+// ── MQTT ──────────────────────────────────────────────────────────────────────
+const clientId = 'dashboard-' + Math.random().toString(36).slice(2, 8);
+const client = mqtt.connect(`${PROTOCOL}://${BROKER}:${PORT}/mqtt`, {
+  clientId,
+  clean: true,
+  reconnectPeriod: 5000,
+});
+
+client.on('connect', () => {
+  setStatus('online', 'Connected — waiting for data');
+  client.subscribe([TOPIC_STATUS, TOPIC_DAILY]);
+});
+
+client.on('reconnect', () => setStatus('waiting', 'Reconnecting…'));
+client.on('offline',   () => setStatus('offline',  'Offline'));
+client.on('error',     () => setStatus('offline',  'Connection error'));
+
+client.on('message', (topic, raw) => {
+  let data;
+  try { data = JSON.parse(raw.toString()); } catch { return; }
+
+  if (topic === TOPIC_STATUS) {
+    const f = data.temp_f;
+    if (typeof f !== 'number') return;
+
+    // Temperature display
+    const el = document.getElementById('temp');
+    el.textContent = f.toFixed(1);
+    el.className = 'temp-value ' + tempColor(f);
+
+    // Status
+    setStatus('online', 'Online');
+    lastMsgTime = Date.now();
+    updateLastSeen();
+
+    // Reset offline timer
+    clearTimeout(offlineTimer);
+    offlineTimer = setTimeout(() => {
+      setStatus('offline', 'Sensor offline');
+      document.getElementById('temp').className = 'temp-value waiting';
+    }, OFFLINE_MS);
+  }
+
+  if (topic === TOPIC_DAILY) {
+    const hi = data.hi_f, lo = data.lo_f;
+    if (typeof hi === 'number') {
+      const hiEl = document.getElementById('hi-temp');
+      hiEl.textContent = hi.toFixed(1);
+      hiEl.className = 'hilo-temp hi';
+    }
+    if (typeof lo === 'number') {
+      const loEl = document.getElementById('lo-temp');
+      loEl.textContent = lo.toFixed(1);
+      loEl.className = 'hilo-temp lo';
+    }
+    if (data.date) {
+      const d = new Date(data.date + 'T12:00:00');
+      document.getElementById('daily-date').textContent =
+        d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+    }
+  }
+});
+</script>
+</body>
+</html>
