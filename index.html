@@ -328,8 +328,9 @@ client.on('message', (topic, raw) => {
 
     clearTimeout(offlineTimer);
     offlineTimer = setTimeout(() => {
-      setStatus('offline', 'Sensor offline');
+      setStatus('offline', 'Last reading · ' + timeAgo(lastMsgTime));
       document.getElementById('temp-inside').className = 'temp-value waiting';
+      // Note: temp value is intentionally NOT cleared — shows last known reading grayed out
     }, OFFLINE_MS);
   }
 
