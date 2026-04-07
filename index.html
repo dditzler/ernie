@@ -335,21 +335,20 @@ client.on('message', (topic, raw) => {
   }
 
   if (topic === TOPIC_DAILY) {
-    const hi = data.hi_f, lo = data.lo_f;
-    if (typeof hi === 'number') {
+    const hi = parseFloat(data.hi_f);
+    const lo = parseFloat(data.lo_f);
+    if (!isNaN(hi)) {
       const el = document.getElementById('hi-temp');
       el.textContent = hi.toFixed(1);
       el.className = 'hilo-temp hi';
     }
-    if (typeof lo === 'number') {
+    if (!isNaN(lo)) {
       const el = document.getElementById('lo-temp');
       el.textContent = lo.toFixed(1);
       el.className = 'hilo-temp lo';
     }
     if (data.date) {
-      const d = new Date(data.date + 'T12:00:00');
-      document.getElementById('daily-date').textContent =
-        d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+      document.getElementById('daily-date').textContent = data.date;
     }
   }
 });
