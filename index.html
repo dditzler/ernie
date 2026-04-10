@@ -219,7 +219,7 @@
   <div class="daily-date" id="daily-date"></div>
 </div>
 
-<div class="footer">Indoor sensor updates every 5 min · Weather updates every 15 min</div>
+<div class="footer">Indoor sensor updates every 10s · Weather updates every 15 min</div>
 
 <script>
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -348,7 +348,11 @@ client.on('message', (topic, raw) => {
       el.className = 'hilo-temp lo';
     }
     if (data.date) {
-      document.getElementById('daily-date').textContent = data.date;
+      const [yr, mo, dy] = data.date.split('-').map(Number);
+      const label = new Date(yr, mo - 1, dy).toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+      });
+      document.getElementById('daily-date').textContent = label;
     }
   }
 });
