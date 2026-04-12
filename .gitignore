@@ -1,0 +1,13 @@
+# ─── PlatformIO build artifacts ──────────────────────────────
+.pio/
+
+# ─── Secrets — never commit these ────────────────────────────
+**/src/secrets.h
+secrets.h
+
+# ─── macOS ───────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+
+# ─── VS Code ─────────────────────────────────────────────────
+.vscode/

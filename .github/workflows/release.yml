@@ -1,0 +1,212 @@
+# ============================================================
+#  OTA Firmware Release — ernie (vacation-home-temp-monitor)
+#
+#  Triggered by pushing a git tag:
+#    hub-v*.*.*        → builds hub_wroom32/env:wroom32_hub    → updates hub-version.json
+#    sensor-c6-v*.*.* → builds vibration_xiao_c6/env:xiao_c6_vibration → updates sensor-c6-version.json
+#    sensor-v*.*.*     → builds sensor_test/env:tsim7000g        → updates sensor-version.json
+#
+#  How to cut a release:
+#    Hub WROOM32: bump hub_wroom32/src/version.h, commit, then:
+#                   git tag hub-v1.2.3 && git push origin hub-v1.2.3
+#    C6 Vibration: bump vibration_xiao_c6/src/version.h, commit, then:
+#                   git tag sensor-c6-v1.2.3 && git push origin sensor-c6-v1.2.3
+#    T-SIM7000G:   bump sensor_test/src/version.h, commit, then:
+#                   git tag sensor-v1.2.3 && git push origin sensor-v1.2.3
+#
+#  Required GitHub repo secrets:
+#    DEPLOY_TOKEN — a fine-grained PAT with Contents read+write on this repo.
+#                   (The same token the devices use to pull binaries, but with
+#                   write permission added so the workflow can push version.json.)
+# ============================================================
+
+name: OTA Release
+
+on:
+  push:
+    tags:
+      - 'hub-v[0-9]+.[0-9]+.[0-9]+'
+      - 'sensor-v[0-9]+.[0-9]+.[0-9]+'
+      - 'sensor-c6-v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  # ── Determine which target this tag is for ──────────────────
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      target:       ${{ steps.parse.outputs.target }}
+      version:      ${{ steps.parse.outputs.version }}
+      pio_dir:      ${{ steps.parse.outputs.pio_dir }}
+      pio_env:      ${{ steps.parse.outputs.pio_env }}
+      version_json: ${{ steps.parse.outputs.version_json }}
+      binary_name:  ${{ steps.parse.outputs.binary_name }}
+    steps:
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == hub-v* ]]; then
+            VERSION="${TAG#hub-v}"
+            echo "target=hub"                      >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION"                >> "$GITHUB_OUTPUT"
+            echo "pio_dir=hub_wroom32"             >> "$GITHUB_OUTPUT"
+            echo "pio_env=wroom32_hub"             >> "$GITHUB_OUTPUT"
+            echo "version_json=hub-version.json"   >> "$GITHUB_OUTPUT"
+            echo "binary_name=hub-firmware-${VERSION}.bin" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == sensor-c6-v* ]]; then
+            VERSION="${TAG#sensor-c6-v}"
+            echo "target=sensor-c6"                     >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION"                     >> "$GITHUB_OUTPUT"
+            echo "pio_dir=vibration_xiao_c6"            >> "$GITHUB_OUTPUT"
+            echo "pio_env=xiao_c6_vibration"            >> "$GITHUB_OUTPUT"
+            echo "version_json=sensor-c6-version.json"  >> "$GITHUB_OUTPUT"
+            echo "binary_name=sensor-c6-firmware-${VERSION}.bin" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == sensor-v* ]]; then
+            VERSION="${TAG#sensor-v}"
+            echo "target=sensor"                       >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION"                    >> "$GITHUB_OUTPUT"
+            echo "pio_dir=sensor_test"                 >> "$GITHUB_OUTPUT"
+            echo "pio_env=tsim7000g"                   >> "$GITHUB_OUTPUT"
+            echo "version_json=sensor-version.json"    >> "$GITHUB_OUTPUT"
+            echo "binary_name=sensor-firmware-${VERSION}.bin" >> "$GITHUB_OUTPUT"
+          else
+            echo "ERROR: Unrecognised tag format: $TAG" >&2
+            exit 1
+          fi
+
+  # ── Build the firmware with PlatformIO ──────────────────────
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles(format('{0}/platformio.ini', needs.setup.outputs.pio_dir)) }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      # secrets.h is gitignored — recreate it for the CI build.
+      # Only the OTA token is needed for building; MQTT/WiFi creds are not
+      # required to compile (they're only needed at runtime).
+      - name: Create secrets.h for hub (hub_wroom32) build
+        if: needs.setup.outputs.target == 'hub'
+        run: |
+          cat > hub_wroom32/src/secrets.h <<'EOF'
+          #pragma once
+          #define OTA_GITHUB_TOKEN  "placeholder"
+          EOF
+
+      - name: Create secrets.h for sensor-c6 (vibration_xiao_c6) build
+        if: needs.setup.outputs.target == 'sensor-c6'
+        run: |
+          cat > vibration_xiao_c6/src/secrets.h <<'EOF'
+          #pragma once
+          #define OTA_GITHUB_TOKEN  "placeholder"
+          EOF
+
+      - name: Create secrets.h for sensor (sensor_test T-SIM7000G) build
+        if: needs.setup.outputs.target == 'sensor'
+        run: |
+          cat > sensor_test/src/secrets.h <<'EOF'
+          #pragma once
+          #define WIFI_SSID_1       "placeholder"
+          #define WIFI_PASS_1       "placeholder"
+          #define WIFI_SSID_2       "placeholder"
+          #define WIFI_PASS_2       "placeholder"
+          #define MQTT_USER_VAL     "placeholder"
+          #define MQTT_PASS_VAL     "placeholder"
+          #define OTA_GITHUB_TOKEN  "placeholder"
+          EOF
+
+      - name: Build firmware
+        run: |
+          cd ${{ needs.setup.outputs.pio_dir }}
+          pio run -e ${{ needs.setup.outputs.pio_env }}
+
+      - name: Locate binary
+        id: locate
+        run: |
+          BIN=$(find ${{ needs.setup.outputs.pio_dir }}/.pio/build/${{ needs.setup.outputs.pio_env }} \
+                     -name 'firmware.bin' | head -1)
+          echo "bin_path=$BIN" >> "$GITHUB_OUTPUT"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-bin
+          path: ${{ steps.locate.outputs.bin_path }}
+          retention-days: 1
+
+  # ── Create GitHub Release and update version JSON ───────────
+  release:
+    needs: [setup, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.DEPLOY_TOKEN }}
+
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-bin
+          path: dist/
+
+      - name: Rename binary
+        run: |
+          mv dist/firmware.bin dist/${{ needs.setup.outputs.binary_name }}
+
+      - name: Create GitHub Release and upload binary
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "${{ needs.setup.outputs.target }} v${{ needs.setup.outputs.version }}"
+          body: |
+            Automated OTA release for **${{ needs.setup.outputs.target }}** firmware.
+
+            Version: `${{ needs.setup.outputs.version }}`
+            Tag: `${{ github.ref_name }}`
+
+            Devices running an older version will pick this up on their next OTA check.
+          files: dist/${{ needs.setup.outputs.binary_name }}
+          token: ${{ secrets.DEPLOY_TOKEN }}
+
+      - name: Get release asset URL
+        id: asset_url
+        run: |
+          # Extract the browser_download_url for the .bin asset from the release
+          ASSET_URL=$(echo '${{ steps.create_release.outputs.assets }}' \
+            | python3 -c "import json,sys; assets=json.load(sys.stdin); print(next(a['browser_download_url'] for a in assets if a['name'].endswith('.bin')))")
+          echo "url=$ASSET_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Update version JSON on main branch
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Pull latest main (may have changed since tag was pushed)
+          git fetch origin main
+          git checkout main
+
+          # Write updated version manifest
+          cat > ${{ needs.setup.outputs.version_json }} <<EOF
+          {
+            "version": "${{ needs.setup.outputs.version }}",
+            "binary_url": "${{ steps.asset_url.outputs.url }}"
+          }
+          EOF
+
+          git add ${{ needs.setup.outputs.version_json }}
+          git commit -m "chore: update ${{ needs.setup.outputs.version_json }} to v${{ needs.setup.outputs.version }} [skip ci]"
+          git push origin main
