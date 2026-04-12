@@ -72,12 +72,16 @@ static bool fetchManifest(String& outVersion,
   outVersion       = extractJsonStr(body, "version");
   String binaryUrl = extractJsonStr(body, "binary_url");
 
-  if (outVersion.isEmpty() || binaryUrl.isEmpty()) {
-    Serial.println("[OTA] Manifest missing 'version' or 'binary_url'");
+  if (outVersion.isEmpty()) {
+    Serial.println("[OTA] Manifest missing 'version'");
     return false;
   }
   if (outVersion == "0.0.0") {
     Serial.println("[OTA] Manifest is placeholder (0.0.0) — skipping");
+    return false;
+  }
+  if (binaryUrl.isEmpty()) {
+    Serial.println("[OTA] Manifest missing 'binary_url'");
     return false;
   }
   if (!binaryUrl.startsWith("https://")) {
