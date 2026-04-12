@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MQTT Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', monospace; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
+  header { background: #161b22; padding: 12px 20px; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 10px; }
+  header h1 { font-size: 16px; color: #58a6ff; letter-spacing: 1px; }
+  #status-dot { width: 10px; height: 10px; border-radius: 50%; background: #f85149; flex-shrink: 0; }
+  #status-dot.connected { background: #3fb950; }
+  #status-text { font-size: 12px; color: #8b949e; }
+  .main { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: 280px; background: #161b22; border-right: 1px solid #30363d; padding: 16px; display: flex; flex-direction: column; gap: 12px; flex-shrink: 0; }
+  .sidebar label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }
+  .sidebar input { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .sidebar input:focus { outline: none; border-color: #58a6ff; }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; }
+  button { width: 100%; padding: 10px; border-radius: 6px; border: none; font-size: 14px; font-weight: bold; cursor: pointer; font-family: inherit; transition: background 0.2s; }
+  #connect-btn { background: #238636; color: #fff; }
+  #connect-btn:hover { background: #2ea043; }
+  #connect-btn.disconnect { background: #b62324; }
+  #connect-btn.disconnect:hover { background: #da3633; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-box { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px; text-align: center; }
+  .stat-box .val { font-size: 20px; font-weight: bold; color: #58a6ff; }
+  .stat-box .lbl { font-size: 10px; color: #8b949e; margin-top: 2px; }
+  .messages-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .messages-toolbar { padding: 10px 16px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 8px; align-items: center; }
+  .messages-toolbar input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .messages-toolbar input:focus { outline: none; border-color: #58a6ff; }
+  .messages-toolbar button { width: auto; padding: 6px 14px; background: #21262d; color: #c9d1d9; font-size: 12px; border: 1px solid #30363d; border-radius: 6px; }
+  .messages-toolbar button:hover { background: #30363d; }
+  #messages { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #484f58; font-size: 13px; gap: 6px; }
+  .msg { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px 14px; font-size: 12px; animation: fadein 0.3s; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .msg-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .msg-topic { color: #58a6ff; font-weight: bold; }
+  .msg-time { color: #484f58; font-size: 11px; }
+  .msg-payload { color: #e6edf3; white-space: pre-wrap; word-break: break-all; }
+  .msg-payload .key { color: #79c0ff; }
+  .msg-payload .str { color: #a5d6ff; }
+  .msg-payload .num { color: #f2cc60; }
+  .log-pane { height: 120px; background: #0d1117; border-top: 1px solid #30363d; overflow-y: auto; padding: 8px 12px; font-size: 11px; }
+  .log-line { padding: 2px 0; }
+  .log-line.err { color: #f85149; }
+  .log-line.ok { color: #3fb950; }
+  .log-line.info { color: #8b949e; }
+  .section-label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; }
+  .preset-row { display: flex; gap: 6px; }
+  .preset-btn { flex: 1; padding: 8px 6px; background: #21262d; border: 1px solid #30363d; border-radius: 6px; color: #8b949e; font-size: 11px; font-family: inherit; cursor: pointer; line-height: 1.4; transition: all 0.15s; }
+  .preset-btn span { font-size: 9px; color: #484f58; }
+  .preset-btn:hover { border-color: #58a6ff; color: #c9d1d9; }
+  .preset-btn.active { background: #0d419d; border-color: #58a6ff; color: #e6edf3; }
+  .preset-btn.active span { color: #79c0ff; }
+</style>
+</head>
+<body>
+
+<header>
+  <div id="status-dot"></div>
+  <h1>MQTT / monitor</h1>
+  <span id="status-text">Disconnected</span>
+</header>
+
+<div class="main">
+  <div class="sidebar">
+    <div>
+      <div class="section-label">Broker</div>
+    </div>
+    <div>
+      <label>Preset</label>
+      <div class="preset-row">
+        <button class="preset-btn active" id="preset-cloud" onclick="applyPreset('cloud')">☁ HiveMQ Cloud<br><span>WiFi path · TLS</span></button>
+        <button class="preset-btn" id="preset-cell" onclick="applyPreset('cell')">📡 Public Broker<br><span>Cellular path · no auth</span></button>
+      </div>
+    </div>
+    <div>
+      <label>Host</label>
+      <input id="host" value="ad21434501c84aad995bc5621bf77f15.s1.eu.hivemq.cloud">
+    </div>
+    <div class="row">
+      <div>
+        <label>Port</label>
+        <input id="port" value="8884">
+      </div>
+      <div>
+        <label>Protocol</label>
+        <input id="protocol" value="wss">
+      </div>
+    </div>
+    <div>
+      <label>Username</label>
+      <input id="username" value="vacation-sensor">
+    </div>
+    <div>
+      <label>Password</label>
+      <input id="password" type="password" value="6WJJY9C@3R7rY7d">
+    </div>
+    <div>
+      <div class="section-label" style="margin-bottom:8px;">Subscription</div>
+      <label>Topic Filter</label>
+      <input id="topic" value="vacation/#">
+    </div>
+    <button id="connect-btn" onclick="toggleConnect()">Connect</button>
+    <div>
+      <div class="section-label" style="margin-bottom:8px;">Stats</div>
+      <div class="stats">
+        <div class="stat-box"><div class="val" id="stat-topics">0</div><div class="lbl">topics</div></div>
+        <div class="stat-box"><div class="val" id="stat-msgs">0</div><div class="lbl">messages</div></div>
+        <div class="stat-box"><div class="val" id="stat-rate">0</div><div class="lbl">msg/sec</div></div>
+        <div class="stat-box"><div class="val" id="stat-bytes">0B</div><div class="lbl">bytes rx</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="messages-pane">
+    <div class="messages-toolbar">
+      <input id="filter" placeholder="Filter topics..." oninput="renderMessages()">
+      <button onclick="document.getElementById('filter').value=''; renderMessages()">Clear</button>
+      <button onclick="allMessages=[]; topics.clear(); renderMessages(); updateStats()">Flush</button>
+    </div>
+    <div id="messages">
+      <div class="empty-state">
+        <div>⬤ No messages yet</div>
+        <div>Connect to a broker to see messages</div>
+      </div>
+    </div>
+    <div class="log-pane" id="log"></div>
+  </div>
+</div>
+
+<script>
+const PRESETS = {
+  cloud: {
+    host:     'ad21434501c84aad995bc5621bf77f15.s1.eu.hivemq.cloud',
+    port:     '8884',
+    protocol: 'wss',
+    username: 'vacation-sensor',
+    password: '6WJJY9C@3R7rY7d',
+  },
+  cell: {
+    host:     'broker.hivemq.com',
+    port:     '8884',
+    protocol: 'wss',
+    username: '',
+    password: '',
+  },
+};
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  document.getElementById('host').value     = p.host;
+  document.getElementById('port').value     = p.port;
+  document.getElementById('protocol').value = p.protocol;
+  document.getElementById('username').value = p.username;
+  document.getElementById('password').value = p.password;
+  document.getElementById('preset-cloud').classList.toggle('active', name === 'cloud');
+  document.getElementById('preset-cell').classList.toggle('active',  name === 'cell');
+}
+
+let client = null;
+let allMessages = [];
+let topics = new Set();
+let totalBytes = 0;
+let msgCount = 0;
+let recentMsgs = [];
+
+function log(msg, type='info') {
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  const now = new Date();
+  const ts = now.toTimeString().slice(0,8);
+  line.className = `log-line ${type}`;
+  line.textContent = `${ts}  ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(connected) {
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  const btn = document.getElementById('connect-btn');
+  dot.className = connected ? 'connected' : '';
+  txt.textContent = connected ? 'Connected' : 'Disconnected';
+  btn.textContent = connected ? 'Disconnect' : 'Connect';
+  btn.className = connected ? 'disconnect' : '';
+}
+
+function toggleConnect() {
+  if (client && client.connected) {
+    client.end();
+    return;
+  }
+  const host = document.getElementById('host').value.trim();
+  const port = parseInt(document.getElementById('port').value.trim());
+  const protocol = document.getElementById('protocol').value.trim();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value.trim();
+  const topic = document.getElementById('topic').value.trim();
+
+  const url = `${protocol}://${host}:${port}/mqtt`;
+  log(`Connecting to ${url} …`);
+
+  const opts = { clientId: 'mqtt-monitor-' + Math.random().toString(16).slice(2,8) };
+  if (username) opts.username = username;
+  if (password) opts.password = password;
+
+  try {
+    client = mqtt.connect(url, opts);
+  } catch(e) {
+    log('Failed to connect: ' + e.message, 'err');
+    return;
+  }
+
+  client.on('connect', () => {
+    log('Connected!', 'ok');
+    setStatus(true);
+    client.subscribe(topic, { qos: 0 }, (err) => {
+      if (err) log('Subscribe error: ' + err.message, 'err');
+      else log(`Subscribed to ${topic}`, 'ok');
+    });
+  });
+
+  client.on('message', (t, payload) => {
+    const msg = { topic: t, payload: payload.toString(), time: new Date() };
+    allMessages.unshift(msg);
+    if (allMessages.length > 200) allMessages.pop();
+    topics.add(t);
+    totalBytes += payload.length;
+    msgCount++;
+    recentMsgs.push(Date.now());
+    renderMessages();
+    updateStats();
+  });
+
+  client.on('error', (err) => {
+    log('Error: ' + err.message, 'err');
+  });
+
+  client.on('close', () => {
+    log('Disconnected', 'info');
+    setStatus(false);
+  });
+
+  client.on('reconnect', () => log('Reconnecting…'));
+}
+
+function prettyJSON(str) {
+  try {
+    const obj = JSON.parse(str);
+    return JSON.stringify(obj, null, 2)
+      .replace(/("[\w]+")\s*:/g, '<span class="key">$1</span>:')
+      .replace(/:\s*(".*?")/g, ': <span class="str">$1</span>')
+      .replace(/:\s*(\d+\.?\d*)/g, ': <span class="num">$1</span>');
+  } catch {
+    return str;
+  }
+}
+
+function renderMessages() {
+  const filter = document.getElementById('filter').value.toLowerCase();
+  const container = document.getElementById('messages');
+  const filtered = allMessages.filter(m => !filter || m.topic.toLowerCase().includes(filter));
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div>⬤ No messages yet</div><div>${client && client.connected ? 'Waiting for messages…' : 'Connect to a broker to see messages'}</div></div>`;
+    return;
+  }
+
+  container.innerHTML = filtered.slice(0, 50).map(m => {
+    const ts = m.time.toTimeString().slice(0,8);
+    return `<div class="msg">
+      <div class="msg-header">
+        <span class="msg-topic">${m.topic}</span>
+        <span class="msg-time">${ts}</span>
+      </div>
+      <div class="msg-payload"><pre>${prettyJSON(m.payload)}</pre></div>
+    </div>`;
+  }).join('');
+}
+
+function updateStats() {
+  const now = Date.now();
+  recentMsgs = recentMsgs.filter(t => now - t < 5000);
+  const rate = (recentMsgs.length / 5).toFixed(1);
+  document.getElementById('stat-topics').textContent = topics.size;
+  document.getElementById('stat-msgs').textContent = msgCount;
+  document.getElementById('stat-rate').textContent = rate;
+  const kb = totalBytes >= 1024 ? (totalBytes/1024).toFixed(1)+'KB' : totalBytes+'B';
+  document.getElementById('stat-bytes').textContent = kb;
+}
+
+log('Ready — click Connect to start', 'info');
+</script>
+</body>
+</html>
