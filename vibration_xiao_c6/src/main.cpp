@@ -37,8 +37,9 @@
 #include "ota_update.h"
 
 // ─── Hub MAC and channel ──────────────────────────────────────────────────────
-uint8_t HUB_MAC[]   = { 0x3C, 0x8A, 0x1F, 0x90, 0xD4, 0x30 };
-#define WIFI_CHANNEL  6   // must match channel printed by hub on boot
+// T-SIM7000G (SIM7-0001) — primary cellular hub (MAC from esptool upload log)
+uint8_t HUB_MAC[]   = { 0x04, 0x83, 0x08, 0x11, 0x5F, 0xE8 };
+#define WIFI_CHANNEL  1   // T-SIM7000G uses ch 1 (FORCE_CELLULAR, no AP)
 
 // ─── WiFi credentials (for OTA — ESP-NOW doesn't need association) ───────────
 const char* WIFI_NETWORKS[][2] = {
