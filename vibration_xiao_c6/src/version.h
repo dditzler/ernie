@@ -14,11 +14,11 @@
 // ============================================================
 
 #define FW_VERSION_MAJOR  1
-#define FW_VERSION_MINOR  0
+#define FW_VERSION_MINOR  1
 #define FW_VERSION_PATCH  0
 
 // Human-readable string printed to Serial on boot.
-#define FW_VERSION_STR    "1.0.0"
+#define FW_VERSION_STR    "1.1.0"
 
 // Numeric value for integer comparisons during OTA version checks.
 // Encoded as 0x00MMNNPP (Major / Minor / Patch).
