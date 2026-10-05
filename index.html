@@ -219,16 +219,22 @@
   <div class="daily-date" id="daily-date"></div>
 </div>
 
-<div class="footer">Indoor sensor updates every 10s · Weather updates every 15 min</div>
+<div class="footer">Indoor sensor updates every 10 min (every 2 min below 55°F) · Weather updates every 15 min</div>
 
 <script>
 // ── Config ─────────────────────────────────────────────────────────────────
-const BROKER       = 'broker.hivemq.com';
-const PORT         = 8884;
+// EMQX Cloud Serverless (free tier) — same broker the T-SIM7000G publishes to.
+// WebSocket over TLS: wss://<host>:8084/mqtt
+const BROKER       = 'd11f1164.ala.us-east-1.emqxsl.com';
+const PORT         = 8084;
+// This page is public, so these credentials are visible to anyone.
+// Use the read-only dashboard login here — never the device's login.
+const MQTT_USER    = 'dashboard-ro';
+const MQTT_PASS    = 'L5v4Jp&039X9msle';
 const PROTOCOL     = 'wss';
 const TOPIC_STATUS = 'vacation/cust1/il/temp/status';
 const TOPIC_DAILY  = 'vacation/cust1/il/temp/daily';
-const OFFLINE_MS   = 5 * 60 * 1000;
+const OFFLINE_MS   = 25 * 60 * 1000;   // device publishes every 10 min → offline after 2 missed + margin
 
 // ZIP 60631 — Chicago NW side
 const WX_URL = 'https://api.open-meteo.com/v1/forecast'
@@ -300,6 +306,7 @@ setInterval(fetchWeather, 15 * 60 * 1000);
 const clientId = 'dashboard-' + Math.random().toString(36).slice(2, 8);
 const client = mqtt.connect(`${PROTOCOL}://${BROKER}:${PORT}/mqtt`, {
   clientId, clean: true, reconnectPeriod: 5000,
+  username: MQTT_USER, password: MQTT_PASS,
 });
 
 client.on('connect', () => {
@@ -310,7 +317,7 @@ client.on('reconnect', () => setStatus('waiting', 'Reconnecting…'));
 client.on('offline',   () => setStatus('offline',  'Offline'));
 client.on('error',     () => setStatus('offline',  'Connection error'));
 
-client.on('message', (topic, raw) => {
+client.on('message', (topic, raw, packet) => {
   let data;
   try { data = JSON.parse(raw.toString()); } catch { return; }
 
@@ -321,6 +328,15 @@ client.on('message', (topic, raw) => {
     const el = document.getElementById('temp-inside');
     el.textContent = f.toFixed(1);
     el.className = 'temp-value ' + tempColor(f);
+
+    // A retained message is the broker's saved copy of the LAST reading — it
+    // arrives instantly on page load but may be old. Show it, but don't claim
+    // the device is online until a live message arrives.
+    if (packet && packet.retain) {
+      setStatus('waiting', 'Last saved reading — waiting for live update');
+      document.getElementById('last-updated').textContent = 'Saved reading';
+      return;
+    }
 
     setStatus('online', 'Online');
     lastMsgTime = Date.now();
